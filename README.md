@@ -10,7 +10,7 @@ average prices, and recent trading sessions in BAM (KM).
 - View average-price charts and the latest 30 sessions.
 - Keep the chart, summary, and table in place during loading and errors.
 - Load the full selected range in calendar-year chunks, with two requests at a time.
-- Show requested dates and returned session coverage; retry missing ranges.
+- Show requested dates and returned session coverage; retry failed history loads.
 - Keep available table rows on partial failure, but withhold the chart and period
   return until every range has loaded. Empty responses are errors, not proof of no trades.
 
@@ -20,8 +20,8 @@ This is a **Möbius mini-app**, not a standalone Node website. Möbius supplies
 React, Recharts, theme variables, the sandboxed app frame, and its authenticated
 external-read proxy. No SASE key is required. Internet access is required.
 
-For a private repository, first authenticate GitHub using your own account with
-access to this repository, then clone it into your Möbius instance:
+Clone this repository into your Möbius instance. If the repository is private,
+first authenticate GitHub using an account with access:
 
 ```sh
 gh repo clone hamzamerzic/sase-berza /data/apps/sase-berza
@@ -31,14 +31,15 @@ python "$SCRIPTS_DIR/apply_app.py" /data/apps/sase-berza
 Use an unused destination on a fresh instance. Do not clone over an existing
 app or overwrite local changes. The manifest is at the repository root for
 Möbius package tooling. Private raw URLs require authentication; do not assume
-an anonymous App Store URL can install this private repository.
+an anonymous App Store URL can install a private repository.
 
 ## Develop
 
 - `index.jsx`: app UI and request lifecycle.
 - `market.js`: SASE feed access, symbol/XML parsing, dates, and chart sampling.
 - `mobius.json`: portable package manifest.
-- `tests/market.test.js`: dependency-free unit tests using Node's test runner.
+- `tests/`: dependency-free tests for parsing helpers, sampling, yearly requests,
+  cancellation and partial failures using Node's test runner.
 
 ```sh
 npm test

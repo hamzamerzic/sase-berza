@@ -9,5 +9,21 @@
     "market.js"
   ],
   "permissions": {},
-  "offline_capable": false
+  "offline_capable": false,
+  "store": {
+    "tagline": "Explore Sarajevo Stock Exchange price history",
+    "description": "Search Sarajevo Stock Exchange companies and explore daily average prices over periods from one month to five years. View recent trading sessions, prices in BAM (KM), daily changes and volume. Multi-year history loads in calendar-year requests, with explicit requested dates and returned session coverage. If a request fails, available table rows remain visible and incomplete charts are withheld. Requires internet and a Möbius installation. Data availability depends on SASE; this is historical information, not a live quote or a trading service.",
+    "screenshots": [
+      {
+        "src": "static/store/history-desktop.png",
+        "alt": "BH Telecom five-year chart with 826 returned trading sessions and explicit coverage dates.",
+        "label": "Five-year history"
+      },
+      {
+        "src": "static/store/history-phone.png",
+        "alt": "Mobile view of BH Telecom three-year history with coverage dates and stock selection.",
+        "label": "On your phone"
+      }
+    ]
+  }
 }
