@@ -491,6 +491,8 @@ const CSS = `
   .sase-brand > svg { width: 26px; height: 26px; color: var(--accent); }
   .sase-search { position: relative; margin-bottom: 14px; }
   .sase-search > svg { position: absolute; width: 18px; height: 18px; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
+  .sase-summary > div:first-child { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+  .sase-summary > div:last-child { flex-shrink: 0; font-variant-numeric: tabular-nums; }
   .sase-periods { display: flex; gap: 6px; margin-bottom: 20px; }
   .sase-periods button { flex: 0 1 64px; }
   .sase-section-heading { margin: 0 8px 18px; font-size: 14px; font-weight: 600; }
