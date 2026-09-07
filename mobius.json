@@ -1,0 +1,13 @@
+{
+  "id": "sase-berza",
+  "name": "SASE Berza",
+  "version": "1.0.0",
+  "description": "Explore Sarajevo Stock Exchange symbols, historical prices, and recent trading sessions.",
+  "entry": "index.jsx",
+  "icon": "icon.png",
+  "source_files": [
+    "market.js"
+  ],
+  "permissions": {},
+  "offline_capable": false
+}
