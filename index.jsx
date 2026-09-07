@@ -4,7 +4,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { Chart, TriangleExclamationErrorWarning, Search } from '@openai/apps-sdk-ui/components/Icon'
-import { MAIN_STOCKS, PERIODS, daysAgo, fmt, downsample, formatTick, fetchSase, parseSymbols, parseXmlHistory } from './market.js'
+import { MAIN_STOCKS, PERIODS, daysAgo, downsample, formatTick, fetchSase, parseSymbols, loadPriceHistory } from './market.js'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ function PriceTooltip({ active, payload }) {
   )
 }
 
-function Spinner() {
+function Spinner({ progress }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 16px' }}>
       <div style={{
@@ -49,7 +49,7 @@ function Spinner() {
         animation: 'saseSpin 0.8s linear infinite',
       }} />
       <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 12 }}>
-        Loading price history…
+        Loading price history…{progress && ` ${progress.completed}/${progress.total} ranges`}
       </div>
     </div>
   )
@@ -109,7 +109,8 @@ export default function SaseBerza({ token }) {
   const [symbolsLoaded, setSymbolsLoaded] = useState(false)
   const reqRef = useRef(0)
   const requestController = useRef(null)
-  const [loadedPeriod, setLoadedPeriod] = useState(null)
+  const [coverage, setCoverage] = useState(null)
+  const [progress, setProgress] = useState(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -137,35 +138,25 @@ export default function SaseBerza({ token }) {
     setLoading(true)
     setError(null)
     setData([])
-    setLoadedPeriod(null)
-
-    // Try the requested period first, then fall back to shorter periods
-    // so we always show whatever data is available.
-    const fallbacks = PERIODS.filter(p => p.days <= per.days).reverse()
+    setCoverage(null)
+    setProgress(null)
 
     try {
-      for (const tryPer of fallbacks) {
-        if (reqRef.current !== id) return
-
-        const xml = await fetchSase({
-          id: '1', type: '1',
-          dateFrom: fmt(daysAgo(tryPer.days)),
-          dateTo:   fmt(new Date()),
-          cssClass: 'PriceGrid',
-          symbol:   sym.symbol,
-          Months: '0', lng: '0', Bonds: '',
-        }, token, controller.signal)
-
-        if (reqRef.current !== id) return
-        const rows = parseXmlHistory(xml)
-        if (rows.length > 0) {
-          setData(rows)
-          setLoadedPeriod(tryPer)
-          window.mobius?.signal('app_ready', { item_count: rows.length })
-          return
-        }
+      const result = await loadPriceHistory(sym.symbol, daysAgo(per.days), new Date(), {
+        token,
+        signal: controller.signal,
+        onProgress: value => { if (reqRef.current === id) setProgress(value) },
+      })
+      if (reqRef.current !== id) return
+      setData(result.rows)
+      setCoverage(result)
+      if (result.missing.length && !result.rows.length) {
+        setError('The requested history could not be loaded. Please retry.')
       }
-      setError('No trading data available for this symbol.')
+      window.mobius?.signal('app_ready', { item_count: result.rows.length })
+      if (result.missing.length) {
+        window.mobius?.signal('error', { source: 'history', message: 'Some history ranges failed to load.' })
+      }
     } catch (e) {
       if (reqRef.current !== id || e.name === 'AbortError') return
       setError(e.message)
@@ -183,7 +174,8 @@ export default function SaseBerza({ token }) {
   // Derived values — guard against empty or single-element data.
   const last  = data.length > 0 ? data[data.length - 1] : null
   const first = data.length > 0 ? data[0] : null
-  const pctChg = last && first && first.avg > 0 && data.length > 1
+  const incomplete = Boolean(coverage?.missing.length)
+  const pctChg = !incomplete && last && first && first.avg > 0 && data.length > 1
     ? ((last.avg - first.avg) / first.avg * 100) : null
   const positive = pctChg !== null ? pctChg >= 0 : null
 
@@ -196,7 +188,7 @@ export default function SaseBerza({ token }) {
     : MAIN_STOCKS
 
   // Downsample for chart (avoids sluggish rendering on 3Y/5Y).
-  const chartData = downsample(data, 250)
+  const chartData = incomplete ? [] : downsample(data, 250)
 
   // Compute tick interval for readable X-axis.
   const tickInterval = chartData.length > 1 ? Math.max(1, Math.floor(chartData.length / 8)) : 0
@@ -269,7 +261,7 @@ export default function SaseBerza({ token }) {
               <div style={s.priceVal}>{(typeof last.avg === 'number' && isFinite(last.avg)) ? last.avg.toFixed(2) : '—'}</div>
               {pctChg !== null && (
                 <div style={{ fontSize: 13, fontWeight: 500, color: positive ? GREEN : RED }}>
-                  {positive ? '▲' : '▼'} {Math.abs(pctChg).toFixed(2)}% <span style={{ color: 'var(--muted)', fontWeight: 400 }}>over {loadedPeriod?.label || period.label}</span>
+                  {positive ? '▲' : '▼'} {Math.abs(pctChg).toFixed(2)}% <span style={{ color: 'var(--muted)', fontWeight: 400 }}>over available sessions</span>
                 </div>
               )}
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
@@ -282,10 +274,16 @@ export default function SaseBerza({ token }) {
         </div>
       </div>
 
-      {loadedPeriod && loadedPeriod.days < period.days && (
-        <p role="status" style={{ color: 'var(--muted)', fontSize: 12 }}>
-          The requested {period.label} range was unavailable; showing {loadedPeriod.label}.
-        </p>
+      {!loading && coverage && (
+        <div className="sase-coverage" role="status">
+          <div>Requested: {coverage.requested.from} – {coverage.requested.to}</div>
+          <div>{data.length ? `${data.length} sessions · ${first.date} – ${last.date}` : 'No trading sessions returned.'}</div>
+          {incomplete && <div className="sase-missing">
+            Incomplete history: {coverage.missing.map(range => `${range.from} – ${range.to}`).join(', ')} did not load.
+            {' '}The chart and period return are withheld to avoid showing gaps as a complete history.
+            <button style={s.pill} onClick={() => loadHistory(stock, period)}>Retry history</button>
+          </div>}
+        </div>
       )}
 
       {/* Chart */}
@@ -337,16 +335,16 @@ export default function SaseBerza({ token }) {
           </ResponsiveContainer>
           {/* Overlay messages on top of the chart */}
           {loading && (
-            <div style={s.chartOverlay}><Spinner /></div>
+            <div style={s.chartOverlay}><Spinner progress={progress} /></div>
           )}
           {!loading && error && (
             <div style={s.chartOverlay}>
               <ErrorState message={error} onRetry={() => loadHistory(stock, period)} />
             </div>
           )}
-          {!loading && !error && data.length === 0 && (
+          {!loading && !error && (data.length === 0 || incomplete) && (
             <div style={s.chartOverlay}>
-              <EmptyMsg>No trading data for this period.</EmptyMsg>
+              <EmptyMsg>{incomplete ? 'Waiting for complete history.' : 'No trading data for this period.'}</EmptyMsg>
             </div>
           )}
         </div>
@@ -486,6 +484,9 @@ const s = {
 const CSS = `
   @keyframes saseSpin { to { transform: rotate(360deg) } }
   .sase-root :is(button, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sase-coverage { color: var(--muted); font-size: 12px; line-height: 1.7; margin: 0 2px 16px; }
+  .sase-missing { margin-top: 8px; color: var(--text); }
+  .sase-missing button { display: block; margin-top: 10px; }
   .sase-content { max-width: 1120px; margin: 0 auto; padding: 28px 28px 12px; }
   .sase-brand { display: flex; align-items: center; gap: 10px; }
   .sase-brand > svg { width: 26px; height: 26px; color: var(--accent); }

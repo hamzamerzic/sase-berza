@@ -9,7 +9,10 @@ average prices, and recent trading sessions in BAM (KM).
 - Select periods from one month to five years.
 - View average-price charts and the latest 30 sessions.
 - Keep the chart, summary, and table in place during loading and errors.
-- Retry failed requests; shorter-range fallbacks are explicitly labelled.
+- Load the full selected range in calendar-year chunks, with two requests at a time.
+- Show requested dates and returned session coverage; retry missing ranges.
+- Keep available table rows on partial failure, but withhold the chart and period
+  return until every range has loaded. Empty responses are errors, not proof of no trades.
 
 ## Install and run
 

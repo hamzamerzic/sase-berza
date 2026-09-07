@@ -84,10 +84,10 @@ function parseSymbols(text) {
 }
 
 function parseXmlHistory(xml) {
-  if (!xml || typeof xml !== 'string' || xml.trim().length === 0) return []
+  if (!xml || typeof xml !== 'string' || !xml.trim()) throw new Error('SASE returned an empty response.')
   const doc = new DOMParser().parseFromString(xml, 'text/xml')
   const parseErr = doc.querySelector('parsererror')
-  if (parseErr) return []
+  if (parseErr || doc.documentElement?.nodeName !== 'NewDataSet') throw new Error('SASE returned an invalid history response.')
   const rows = [...doc.querySelectorAll('NewDataSet > *')]
   if (!rows.length) return []
 
@@ -115,3 +115,66 @@ function parseXmlHistory(xml) {
 
 
 export { MAIN_STOCKS, PERIODS, daysAgo, fmt, downsample, formatTick, fetchSase, parseSymbols, parseXmlHistory }
+
+function dateKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+// Inclusive, non-overlapping calendar-year requests avoid the feed's large-range failures.
+export function yearRanges(from, to) {
+  if (!Number.isFinite(from.getTime()) || !Number.isFinite(to.getTime()) || from > to) {
+    throw new Error('Choose a valid start and end date.')
+  }
+  const ranges = []
+  for (let year = from.getFullYear(); year <= to.getFullYear(); year++) {
+    ranges.push({
+      from: year === from.getFullYear() ? from : new Date(year, 0, 1),
+      to: year === to.getFullYear() ? to : new Date(year, 11, 31),
+    })
+  }
+  return ranges
+}
+
+async function fetchHistoryRange(symbol, range, { token, signal }) {
+  const xml = await fetchSase({
+    id: '1', type: '1', dateFrom: fmt(range.from), dateTo: fmt(range.to),
+    cssClass: 'PriceGrid', symbol, Months: '0', lng: '0', Bonds: '',
+  }, token, signal)
+  return parseXmlHistory(xml)
+}
+
+// Keep transport replaceable for deterministic cancellation and partial-failure tests.
+export async function loadPriceHistory(symbol, from, to, options = {}, readRange = fetchHistoryRange) {
+  const { signal, onProgress } = options
+  const ranges = yearRanges(from, to)
+  const rows = new Map()
+  const missing = []
+  let completed = 0
+  onProgress?.({ completed, total: ranges.length })
+  for (let offset = 0; offset < ranges.length; offset += 2) {
+    signal?.throwIfAborted()
+    await Promise.all(ranges.slice(offset, offset + 2).map(async range => {
+      try {
+        const result = await readRange(symbol, range, options)
+        signal?.throwIfAborted()
+        const start = dateKey(range.from)
+        const end = dateKey(range.to)
+        for (const row of result) {
+          if (row.date >= start && row.date <= end) rows.set(row.date, row)
+        }
+      } catch (error) {
+        if (signal?.aborted || error.name === 'AbortError') throw error
+        missing.push({ from: dateKey(range.from), to: dateKey(range.to), message: error.message })
+      } finally {
+        completed++
+        if (!signal?.aborted) onProgress?.({ completed, total: ranges.length })
+      }
+    }))
+  }
+  signal?.throwIfAborted()
+  return {
+    rows: [...rows.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    missing: missing.sort((a, b) => a.from.localeCompare(b.from)),
+    requested: { from: dateKey(from), to: dateKey(to) },
+  }
+}
